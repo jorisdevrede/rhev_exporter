@@ -1,0 +1,18 @@
+---
+
+# credentials to access RHEV Manager
+user: admin@domain
+password: password
+
+# API endpoint for RHEV
+# endpoint: https://[RHEV]:8443/api/
+
+# frequency to retrieve metrics in seconds. defaults to 300.
+# interval: 300
+
+# host and port to run the exporter on
+host: 0.0.0.0 
+port: 9621
+
+# exporter uri to publish on. defaults to /metrics
+# path: /metrics
