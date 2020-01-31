@@ -15,9 +15,11 @@ import (
         "github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+type ch struct { cluster, host string}
+
 var (
 	clusterList = make(map[string]string)
-	hostList    = make(map[string]string)
+	hostList    = make(map[string]ch)
 )
 
 var (
@@ -25,50 +27,7 @@ var (
         hostMetrics    = make(map[string]*prometheus.GaugeVec)
 )
 
-type Clusters struct {
-	Clusters []Cluster `xml:"cluster"`
-}
-
-type Cluster struct {
-	Id string `xml:"id,attr"`
-	Name string `xml:"name"`
-}
-
-type Hosts struct {
-	Hosts []Host `xml:"host"`
-}
-
-type Host struct {
-	Id string `xml:"id,attr"`
-	Name string `xml:"name"`
-	Status Status `xml:"status"`
-}
-
-type Status struct {
-	State string `xml:"state"`
-}
-
-type Stats struct {
-	Stats []Stat `xml:"statistic"`
-}
-
-type Stat struct {
-	Name string `xml:"name"`
-	Description string `xml:"description"`
-	Type string `xml:"type"`
-	Unit string `xml:"unit"`
-	Values Values `xml:"values"`
-}
-
-type Values struct {
-	Value Value `xml:"value"`
-}
-
-type Value struct {
-	Datum float64 `xml:"datum"`
-}
-
-
+// calls RHEV REST API and translates xml response to a struct
 func call(base string, uri string, user string, password string, v interface{}) error {
 
         tlsConf := &tls.Config{InsecureSkipVerify: true}
@@ -106,16 +65,12 @@ func call(base string, uri string, user string, password string, v interface{}) 
 	return nil
 }
 
+// initializes metrics for export
 func initMetrics(config config, logger log.Logger) {
+
 	level.Info(logger).Log("msg", "initalizing metrics")
 
-	// haal cluster info op
-		// map cluster id en naam
-	// haal host info op
-		// map host id en naam
-	// haal metrics voor 1 host op
-
-
+	// retrieve cluster Names and Ids
 	var clusters Clusters
 	if err := call(config.endpoint, "/clusters", config.user, config.password, &clusters); err != nil {
 		level.Error(logger).Log("call", config.endpoint + "/clusters", "error", err)
@@ -124,14 +79,16 @@ func initMetrics(config config, logger log.Logger) {
 	       clusterList[cluster.Id] = cluster.Name
 	}
 
+	// retrieve host Names and Ids, combined with cluster Names
 	var hosts Hosts
 	if err := call(config.endpoint, "/hosts", config.user, config.password, &hosts); err != nil {
 		level.Error(logger).Log("call", config.endpoint + "/hosts","error", err)
 	}
 	for _, host := range hosts.Hosts {
-		hostList[host.Id] = host.Name
+		hostList[host.Id] = ch{clusterList[host.Cluster.Id], host.Name}
 	}
 
+	// retrieve stats and register them as metrics for export
 	var stats Stats
 	if err := call(config.endpoint, "/hosts/" + hosts.Hosts[0].Id + "/statistics", config.user, config.password, &stats); err != nil {
 		level.Error(logger).Log("call", config.endpoint + "/hosts/" + hosts.Hosts[0].Id + "/statistics" ,"error", err)
@@ -145,9 +102,9 @@ func initMetrics(config config, logger log.Logger) {
                         Help: stat.Description + " in cluster " + stat.Unit,
                 },[]string{"cluster"})
 
-		hostMetrics["UsedMem"] = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		hostMetrics[stat.Name] = promauto.NewGaugeVec(prometheus.GaugeOpts{
                         Name: "rhev_host_" + strings.ReplaceAll(stat.Name, ".", "_"),
-                        Help: stat.Description + " on host" + stat.Unit,
+                        Help: stat.Description + " on host " + stat.Unit,
                 },[]string{"cluster", "host"})
 	}
 
@@ -167,9 +124,39 @@ func recordMetrics(config config, logger log.Logger) {
 	for {
 		level.Debug(logger).Log("msg", "metrics recording cycle")
 
-		// haal /hosts op en tel active hosts
+		type metrics struct {cluster, metric string}
+                sum := make(map[metrics]float64)
 
-		// haal metrics per host op
+		// record host states
+	        var hosts Hosts
+		if err := call(config.endpoint, "/hosts", config.user, config.password, &hosts); err != nil {
+			level.Error(logger).Log("call", config.endpoint + "/hosts","error", err)
+		}
+		for _, host := range hosts.Hosts {
+			level.Debug(logger).Log("msg", "recording host info", "host", host.Name, "state", host.Status.State)
+			if host.Status.State == "up" {
+				sum[metrics{clusterList[host.Cluster.Id], "activeHosts"}] = sum[metrics{clusterList[host.Cluster.Id], "activeHosts"}] + 1
+				hostMetrics["up"].With(prometheus.Labels{"cluster": clusterList[host.Cluster.Id], "host": host.Name}).Set(1)
+			} else {
+				hostMetrics["up"].With(prometheus.Labels{"cluster": clusterList[host.Cluster.Id], "host": host.Name}).Set(0)
+			}
+
+			// record host statistics
+			var stats Stats
+			if err := call(config.endpoint, "/hosts/" + host.Id + "/statistics", config.user, config.password, &stats); err != nil {
+				level.Error(logger).Log("call", config.endpoint + "/hosts/" + host.Id + "/statistics" ,"error", err)
+			}
+			for _, stat := range stats.Stats {
+				// TODO - differentiatie between unit types
+				sum[metrics{hostList[stat.Host.Id].cluster, stat.Name}] = sum[metrics{hostList[stat.Host.Id].cluster, stat.Name}] + stat.Values.Value.Datum
+				hostMetrics[stat.Name].With(prometheus.Labels{"cluster": hostList[stat.Host.Id].cluster, "host": hostList[stat.Host.Id].host}).Set(stat.Values.Value.Datum)
+			}
+		}
+
+               for key, value := range sum {
+                        // record cluster metrics
+                        clusterMetrics[key.metric].With(prometheus.Labels{"cluster": key.cluster}).Set(value)
+                }
 
 		time.Sleep(time.Duration(config.interval) * time.Second)
 	}
