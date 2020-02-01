@@ -44,3 +44,15 @@ type Values struct {
 type Value struct {
         Datum float64 `xml:"datum"`
 }
+
+type VMs struct {
+	VMs []VM `xml:"vm"`
+}
+
+type VM struct {
+	Name string `xml:"name"`
+	Memory float64 `xml:"memory,omitempty"`
+	Status Status `xml:"status,omitempty"`
+	Host Host `xml:"host,omitempty"`
+	Cluster Cluster `xml:"cluster,omitempty"`
+}
