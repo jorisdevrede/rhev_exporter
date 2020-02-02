@@ -16,12 +16,9 @@ type Hosts struct {
 type Host struct {
         Id string `xml:"id,attr"`
         Name string `xml:"name,omitempty"`
-        Status Status `xml:"status,omitempty"`
+        Status string `xml:"status>state,omitempty"`
         Cluster Cluster `xml:"cluster,omitempty"`
-}
-
-type Status struct {
-        State string `xml:"state"`
+	Stats []Stat `xml:"statistics>statistic,omitempty"`
 }
 
 type Stats struct {
@@ -34,25 +31,5 @@ type Stat struct {
         Type string `xml:"type"`
         Unit string `xml:"unit"`
         Host Host `xml:"host"`
-        Values Values `xml:"values"`
-}
-
-type Values struct {
-        Value Value `xml:"value"`
-}
-
-type Value struct {
-        Datum float64 `xml:"datum"`
-}
-
-type VMs struct {
-	VMs []VM `xml:"vm"`
-}
-
-type VM struct {
-	Name string `xml:"name"`
-	Memory float64 `xml:"memory,omitempty"`
-	Status Status `xml:"status,omitempty"`
-	Host Host `xml:"host,omitempty"`
-	Cluster Cluster `xml:"cluster,omitempty"`
+	Value float64 `xml:"values>value>datum"`
 }
