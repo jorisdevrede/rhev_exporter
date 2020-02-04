@@ -70,7 +70,7 @@ func initMetrics(config config, logger log.Logger) {
 	// retrieve cluster Names and Ids (8s call)
 	var clusters Clusters
 	if err := call(config.endpoint, "/clusters", config.user, config.password, &clusters, false); err != nil {
-		level.Error(logger).Log("call", config.endpoint+"/clusters", "error", err)
+		level.Error(logger).Log("call", config.endpoint + "/clusters", "error", err)
 	}
 	for _, cluster := range clusters.Clusters {
 		clusterList[cluster.Id] = cluster.Name
@@ -79,7 +79,7 @@ func initMetrics(config config, logger log.Logger) {
 	// retrieve hosts with stats (8s call)
 	var hosts Hosts
 	if err := call(config.endpoint, "/hosts", config.user, config.password, &hosts, true); err != nil {
-		level.Error(logger).Log("call", config.endpoint+"/hosts", "error", err)
+		level.Error(logger).Log("call", config.endpoint + "/hosts", "error", err)
 	}
 	for _, stat := range hosts.Hosts[0].Stats {
 
@@ -107,10 +107,21 @@ func recordMetrics(config config, logger log.Logger) {
 	for {
 		level.Debug(logger).Log("msg", "metrics recording cycle")
 
+		var vms VMs
+		if err := call(config.endpoint, "/vms", config.user, config.password, &vms, false); err != nil {
+			level.Error(logger).Log("call", config.endpoint + "/vms", "error", err)
+		}
+		var vmCount = make(map[string]float64)
+		for _, vm := range vms.VMs {
+			if vm.Host.Id != "" {
+				vmCount[vm.Host.Id]++
+			}
+		}
+
 		// record host states and stats (8s call)
 		var hosts Hosts
 		if err := call(config.endpoint, "/hosts", config.user, config.password, &hosts, true); err != nil {
-			level.Error(logger).Log("call", config.endpoint+"/hosts", "error", err)
+			level.Error(logger).Log("call", config.endpoint + "/hosts", "error", err)
 		}
 		for _, host := range hosts.Hosts {
 			level.Debug(logger).Log("msg", "recording host info", "host", host.Name, "state", host.Status)
@@ -119,6 +130,8 @@ func recordMetrics(config config, logger log.Logger) {
 			} else {
 				hostMetrics["up"].With(prometheus.Labels{"cluster": clusterList[host.Cluster.Id], "host": host.Name}).Set(0)
 			}
+
+			hostMetrics["activeVMs"].With(prometheus.Labels{"cluster": clusterList[host.Cluster.Id], "host": host.Name}).Set(vmCount[host.Id])
 
 			for _, stat := range host.Stats {
 				hostMetrics[stat.Name].With(prometheus.Labels{"cluster": clusterList[host.Cluster.Id], "host": host.Name}).Set(stat.Value)

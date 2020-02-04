@@ -33,3 +33,13 @@ type Stat struct {
         Host Host `xml:"host"`
 	Value float64 `xml:"values>value>datum"`
 }
+
+type VMs struct {
+	VMs []VM `xml:"vm"`
+}
+
+type VM struct {
+	Name string `xml:"name"`
+	Host Host `xml:"host,omitempty"`
+	Cluster Cluster `xml:"cluster,omitempty"`
+}
